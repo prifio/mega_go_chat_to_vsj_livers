@@ -17,10 +17,10 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-type readStatus int
+type ReadStatus int
 
 const (
-	oKRead readStatus = iota
+	oKRead ReadStatus = iota
 	closeRead
 	errRead
 )

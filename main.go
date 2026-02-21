@@ -6,42 +6,15 @@ import (
 	"net/http"
 	"strconv"
 	"sync/atomic"
+
+	"example/hello/history"
 )
 
-type letter struct {
-	uname string
-	txt   string
-}
-
 type globalManager struct { // in future - multirooms and extra non-chat-history logic like auth
-	hm *historyManager
+	hm *history.Manager
 }
 
-type histMangAddReq struct {
-	lt    letter
-	reply chan bool
-}
-
-type historyManagerSubscription struct {
-	wake    chan struct{}
-	isAlive *atomic.Bool
-}
-
-type twoHistBufs struct {
-	buf0  []letter
-	buf1  []letter
-	shift int
-}
-
-type historyManager struct {
-	bufs    atomic.Pointer[twoHistBufs]
-	histLen atomic.Uint64
-	addReq  chan histMangAddReq
-	subReq  chan historyManagerSubscription
-	subs    []historyManagerSubscription
-}
-
-func newGlobalManager(hm *historyManager) globalManager {
+func newGlobalManager(hm *history.Manager) globalManager {
 	return globalManager{
 		hm: hm,
 	}
@@ -59,30 +32,7 @@ func (gm *globalManager) launch() {
 	http.HandleFunc("/ws", handler)
 }
 
-func newHistManager(halfHistLen int) *historyManager {
-	buf0 := make([]letter, halfHistLen)
-	buf1 := make([]letter, halfHistLen)
-	bufs := twoHistBufs{
-		buf0:  buf0,
-		buf1:  buf1,
-		shift: 0,
-	}
-
-	letReq := make(chan histMangAddReq, 16)
-	subReq := make(chan historyManagerSubscription, 16)
-	subs := make([]historyManagerSubscription, 0, 1)
-	hm := historyManager{
-		bufs:    atomic.Pointer[twoHistBufs]{},
-		histLen: atomic.Uint64{}, // = 0
-		addReq:  letReq,
-		subReq:  subReq,
-		subs:    subs,
-	}
-	hm.bufs.Store(&bufs)
-	return &hm
-}
-
-func (hm *historyManager) launch() {
+func (hm *history.Manager) launch() {
 	startBufs := hm.bufs.Load()
 	// local copies of some atomic hm vars
 	buf0 := startBufs.buf0
@@ -92,11 +42,11 @@ func (hm *historyManager) launch() {
 	shift := 0
 	startBufs = nil // drop shared ownership
 
-	processAddReq := func(req histMangAddReq) bool {
+	processAddReq := func(req history_manager.AddRequest) bool {
 		locInd := histLen % bufLen
 		if locInd == 0 && histLen >= 2*bufLen { // need new buf
-			buf2 := make([]letter, bufLen)
-			buf2[0] = req.lt
+			buf2 := make([]Message, bufLen)
+			buf2[0] = req.msg
 			buf0 = buf1
 			buf1 = buf2
 			shift += bufLen
@@ -107,9 +57,9 @@ func (hm *historyManager) launch() {
 			}
 			hm.bufs.Store(&newBufs)
 		} else if histLen < bufLen {
-			buf0[histLen] = req.lt
+			buf0[histLen] = req.msg
 		} else {
-			buf1[locInd] = req.lt
+			buf1[locInd] = req.msg
 		}
 		histLen++
 		hm.histLen.Store(uint64(histLen))
@@ -171,19 +121,19 @@ LL:
 	}
 }
 
-func (hm *historyManager) getHistLen() int {
+func (hm *HistoryManager) getHistLen() int {
 	return int(hm.histLen.Load())
 }
 
-func (hm *historyManager) getLetter(i int) (lt letter, ok bool) {
+func (hm *HistoryManager) getMessage(i int) (lt Message, ok bool) {
 	if hl := hm.getHistLen(); hl <= i {
-		return letter{}, false
+		return Message{}, false
 	}
 	bufs := hm.bufs.Load()
 	if i < bufs.shift { // todo: return with flag that this is the oldest we can provide
 		log.Printf("INFO: Asked for outdated message %v, have only %v\n", i, bufs.shift)
 		firstAv := bufs.buf0[0]
-		lt := letter{
+		lt := Message{
 			uname: firstAv.uname,
 			txt:   fmt.Sprintf("*dont have such old message, there is the oldest available* %v", firstAv.txt),
 		}
@@ -197,20 +147,20 @@ func (hm *historyManager) getLetter(i int) (lt letter, ok bool) {
 	return bufs.buf1[iLoc-bufLen], true
 }
 
-func (hm *historyManager) addLetter(lt letter) bool {
+func (hm *HistoryManager) addMessage(msg Message) bool {
 	reply := make(chan bool, 1)
-	hm.addReq <- histMangAddReq{
-		lt:    lt,
+	hm.addReq <- history_manager.AddRequest{
+		msg:   msg,
 		reply: reply,
 	}
 	return <-reply
 }
 
-func (hm *historyManager) addSubsc() historyManagerSubscription {
+func (hm *HistoryManager) addSubsc() HistoryManagerSubscription {
 	wake := make(chan struct{}, 1)
 	isAlive := atomic.Bool{}
 	isAlive.Store(true)
-	subscription := historyManagerSubscription{
+	subscription := HistoryManagerSubscription{
 		wake:    wake,
 		isAlive: &isAlive,
 	}
@@ -218,11 +168,11 @@ func (hm *historyManager) addSubsc() historyManagerSubscription {
 	return subscription
 }
 
-func (hm *historyManager) unSub(subscription historyManagerSubscription) { // hm still may send wake signals
+func (hm *HistoryManager) unSub(subscription HistoryManagerSubscription) { // hm still may send wake signals
 	subscription.isAlive.Store(false)
 }
 
-func (um *userManager) processMessage(txt string) (errmsg string, ok bool) {
+func (um *UserManager) processMessage(txt string) (errmsg string, ok bool) {
 	if len(txt) == 0 {
 		return "Invalid request", false
 	}
@@ -233,7 +183,7 @@ func (um *userManager) processMessage(txt string) (errmsg string, ok bool) {
 			if err != nil {
 				return "Invalid request", false
 			}
-			lt, ok := um.hm.getLetter(ind)
+			lt, ok := um.hm.getMessage(ind)
 			if !ok {
 				return fmt.Sprintf("Request for non-existing message %v", ind), false
 			}
@@ -242,11 +192,11 @@ func (um *userManager) processMessage(txt string) (errmsg string, ok bool) {
 		}
 	case '1':
 		{ // write
-			lt := letter{
+			lt := Message{
 				uname: um.uname,
 				txt:   txt[1:],
 			}
-			ok := um.hm.addLetter(lt)
+			ok := um.hm.addMessage(lt)
 			if !ok { // now it's always ok
 				return "History overflow", false
 			}
@@ -257,7 +207,7 @@ func (um *userManager) processMessage(txt string) (errmsg string, ok bool) {
 	}
 }
 
-func (um *userManager) launchListener() {
+func (um *UserManager) launchListener() {
 	go func() { // web socket listener
 		defer close(um.sendChan)
 	LL:
@@ -279,7 +229,7 @@ func (um *userManager) launchListener() {
 	}()
 }
 
-func (um *userManager) launchWriter(sendedHistLen int) {
+func (um *UserManager) launchWriter(sendedHistLen int) {
 	histLen := sendedHistLen
 	go func() { // web socket writer
 		defer um.conn.Close()
@@ -313,7 +263,7 @@ func (um *userManager) launchWriter(sendedHistLen int) {
 	}()
 }
 
-func (um *userManager) launch() {
+func (um *UserManager) launch() {
 	uname, stat, _ := um.read()
 	if stat != oKRead {
 		log.Println("WARN: Cannot login client")

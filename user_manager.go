@@ -9,24 +9,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type userManager struct {
-	hm                         *historyManager
+type UserManager struct {
+	hm                         *HistoryManager
 	conn                       *websocket.Conn
 	uname                      string
-	sendChan                   chan letter
-	historyManagerSubscription historyManagerSubscription
+	sendChan                   chan Message
+	historyManagerSubscription HistoryManagerSubscription
 }
 
-func newUserManager(hm *historyManager, w http.ResponseWriter, r *http.Request) (*userManager, error) {
+func newUserManager(hm *HistoryManager, w http.ResponseWriter, r *http.Request) (*UserManager, error) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("WARN: Cannot upgrade connection")
 		return nil, err
 	}
 
-	sendChan := make(chan letter, 1)
+	sendChan := make(chan Message, 1)
 	hmSubscription := hm.addSubsc()
-	return &userManager{
+	return &UserManager{
 		hm:                         hm,
 		conn:                       conn,
 		uname:                      "",
@@ -35,16 +35,16 @@ func newUserManager(hm *historyManager, w http.ResponseWriter, r *http.Request) 
 	}, nil
 }
 
-func (um *userManager) send(message string) error {
+func (um *UserManager) send(message string) error {
 	return um.conn.WriteMessage(websocket.TextMessage, []byte(message))
 }
 
-func (um *userManager) sendNotify(histLen int) error { // todo: send also left bound
+func (um *UserManager) sendNotify(histLen int) error { // todo: send also left bound
 	message := fmt.Sprintf("0%v", histLen)
 	return um.conn.WriteMessage(websocket.TextMessage, []byte(message))
 }
 
-func (um *userManager) read() (string, readStatus, error) {
+func (um *UserManager) read() (string, ReadStatus, error) {
 	messageType, message, err := um.conn.ReadMessage()
 	if err != nil {
 		return "", closeRead, err
