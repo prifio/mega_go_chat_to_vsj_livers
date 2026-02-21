@@ -1,4 +1,4 @@
-module example/hello
+module vcmsg
 
 go 1.25.7
 
