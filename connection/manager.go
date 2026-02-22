@@ -34,10 +34,10 @@ func NewManager(hm *history.Manager, w http.ResponseWriter, r *http.Request) (*M
 }
 
 func (cm *Manager) processMessage(req *wsMessage) error {
-	switch req.typeInd {
+	switch req.TypeInd {
 	case clientAskMessageInd:
 		{
-			content := req.content.(clientAskMessage)
+			content := req.Content.(*clientAskMessage)
 			msg, ok := cm.hm.GetMessage(content.Ind)
 			if !ok {
 				return fmt.Errorf("Request for non-existing message %v", content.Ind)
@@ -47,7 +47,7 @@ func (cm *Manager) processMessage(req *wsMessage) error {
 		}
 	case clientSendMessageInd:
 		{
-			content := req.content.(clientSendMessage)
+			content := req.Content.(*clientSendMessage)
 			msg := history.Message{
 				Uname: cm.uname,
 				Txt:   content.Txt,
@@ -63,7 +63,7 @@ func (cm *Manager) processMessage(req *wsMessage) error {
 	default:
 		{
 			log.Println("ERR: process invalid client request type, should be unreachable!")
-			return fmt.Errorf("Invalid client request type: %v", req.typeInd)
+			return fmt.Errorf("Invalid client request type: %v", req.TypeInd)
 		}
 	}
 }
@@ -106,16 +106,18 @@ SL:
 				if !ok { // connection closed from reader
 					break SL
 				}
-				if err := cm.sendMessage(&msg); err != nil {
+				newHistLen := cm.hm.GetHistLen()
+				if err := cm.sendMessage(&msg, newHistLen); err != nil {
 					log.Printf("WARN: Client %v; Cannot send message, close connection; Err: %v\n", cm.uname, err)
 					break SL
 				}
+				histLen = newHistLen
 			}
 		case <-cm.historyManagerSubscription.Wake:
 			{
-				newHistLen := cm.hm.GetHistLen()
+				shift, newHistLen := cm.hm.GetShiftAndHistLen()
 				if newHistLen > histLen { // seems always true
-					cm.sendNotify(newHistLen)
+					cm.sendNotify(shift, newHistLen)
 					histLen = newHistLen
 				}
 			}
@@ -131,9 +133,9 @@ func (cm *Manager) Start() {
 		log.Println("WARN: Cannot login client")
 		return
 	}
-	histLen := cm.hm.GetHistLen()
+	shift, histLen := cm.hm.GetShiftAndHistLen()
 	if histLen > 0 {
-		err := cm.sendNotify(histLen)
+		err := cm.sendNotify(shift, histLen)
 		if err != nil {
 			log.Printf("WARN: Cannot init client %v\n", cm.uname)
 			return

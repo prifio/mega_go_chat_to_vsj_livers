@@ -17,12 +17,13 @@ const (
 )
 
 type wsMessage struct {
-	typeInd messageType
-	content any
+	TypeInd messageType
+	Content any
 }
 
 type serverNotify struct {
-	HistoryLen int
+	FirstAvailable int
+	HistoryLen     int
 }
 type serverSendMessage struct {
 	Uname        string
@@ -44,16 +45,16 @@ type clientLogin struct {
 
 func unmarshalClientReq(msg []byte) (*wsMessage, error) {
 	type reqJson struct {
-		Type    int
+		TypeInd int
 		Content json.RawMessage
 	}
 	typeResolvedReq := reqJson{}
 	if err := json.Unmarshal(msg, &typeResolvedReq); err != nil {
 		return nil, err
 	}
-	typeInd := typeResolvedReq.Type
+	typeInd := typeResolvedReq.TypeInd
 	var dst any
-	switch typeResolvedReq.Type {
+	switch typeInd {
 	case int(clientAskMessageInd):
 		dst = &clientAskMessage{}
 	case int(clientSendMessageInd):
@@ -66,18 +67,18 @@ func unmarshalClientReq(msg []byte) (*wsMessage, error) {
 	if err := json.Unmarshal(typeResolvedReq.Content, dst); err != nil {
 		return nil, err
 	}
-	return &wsMessage{typeInd: messageType(typeInd), content: dst}, nil
+	return &wsMessage{TypeInd: messageType(typeInd), Content: dst}, nil
 }
 
 func (notify serverNotify) toJsonMessage() ([]byte, error) {
 	return json.Marshal(&wsMessage{
-		typeInd: serverNotifyInd,
-		content: notify,
+		TypeInd: serverNotifyInd,
+		Content: notify,
 	})
 }
 func (msg serverSendMessage) toJsonMessage() ([]byte, error) {
 	return json.Marshal(&wsMessage{
-		typeInd: serverSendMessageInd,
-		content: msg,
+		TypeInd: serverSendMessageInd,
+		Content: msg,
 	})
 }

@@ -153,6 +153,12 @@ func (hm *Manager) GetHistLen() int {
 	return int(hm.histLen.Load())
 }
 
+func (hm *Manager) GetShiftAndHistLen() (int, int) {
+	shift := hm.bufs.Load().shift
+	histLen := max(int(hm.histLen.Load()), shift)
+	return shift, histLen
+}
+
 func (hm *Manager) GetMessage(i int) (GetResponse, bool) {
 	if hl := hm.GetHistLen(); hl <= i {
 		return GetResponse{}, false

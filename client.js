@@ -1,42 +1,79 @@
-let nickname = "prifio_k"
+// let nickname = "prifio_k"
 // let nickname = "horse"
-// let nickname = "chuzezemets"
+let nickname = "chuzezemets"
 // let nickname = "late_man"
 
-let ind = 0
+let last_ind = 0
 let processed_ind = 0
+
+let serverNotifyInd       = 0
+let serverSendMessageInd  = 1
+let clientAskMessageInd   = 2
+let clientSendMessageInd  = 3
+let clientLoginInd        = 4
+
+function req_to_json(req, ind) {
+    let obj = {
+        "TypeInd": ind,
+        "Content": req,
+    }
+    return JSON.stringify(obj)
+}
+
+function add_div(txt) {
+    let dv = document.createElement("div");
+    dv.textContent = txt
+    document.body.appendChild(dv)
+}
 
 let ws = new WebSocket("ws://localhost:8080/ws")
 ws.addEventListener("open", (event) => {
-    ws.send(nickname)
+    let req = {
+        "Uname": nickname,
+    }
+    ws.send(req_to_json(req, clientLoginInd))
 })
 
 ws.onmessage = function (e) {
     let dt = e.data;
+    let obj = JSON.parse(dt)
+    let content = obj.Content
     console.log("Msg:", dt)
-    if (dt[0] == "0") {
-        let cur_ind = parseInt(dt.substring(1, dt.length))
-        ind = Math.max(ind, cur_ind)
-        background_loop()
-    } else if (dt[0] == "1") {
-        let res = dt.substring(1, dt.length)
-        console.log("Incomed:", res)
-        let dv = document.createElement("div");
-        dv.textContent = res
-        document.body.appendChild(dv)
+    if (obj.TypeInd == serverNotifyInd) {
+        last_ind = Math.max(last_ind, content.HistoryLen)
+        if (content.FirstAvailable > processed_ind) {
+            add_div("* Skip " + (content.FirstAvailable - processed_ind).toString() + " messages *")
+            processed_ind = content.FirstAvailable
+        }
+        send_reqs_loop()
+    } else if (obj.TypeInd == serverSendMessageInd) {
+        let res = content.Uname + ": " + content.Txt
+        if (content.RequestedInd < content.ResultInd) {
+            add_div("* Skip " + (content.ResultInd - content.RequestedInd).toString() + " messages *")
+            processed_ind = Math.max(processed_ind, content.ResultInd + 1)
+        }
+        add_div(res)
+        last_ind = Math.max(last_ind, content.HistoryLen)
+        send_reqs_loop()
     } else {
-        console.log("ERR_1", dt)
+        console.log("Invalid request type ind", dt)
     }
 }
 
-function background_loop() {
-    while (processed_ind < ind) {
-        ws.send("0" + processed_ind.toString())
+function send_reqs_loop() {
+    while (processed_ind < last_ind) {
+        let req = {
+            "Ind": processed_ind
+        }
+        ws.send(req_to_json(req, clientAskMessageInd))
         processed_ind += 1
     }
 }
-setInterval(background_loop, 100);
+setInterval(send_reqs_loop, 100);
 
 function send_message(msg) {
-    ws.send("1" + msg)
+    let req = {
+        "Txt": msg
+    }
+    ws.send(req_to_json(req, clientSendMessageInd))
 }

@@ -55,25 +55,28 @@ func (cm *Manager) read() (*wsMessage, readStatus, error) {
 	return req, oKRead, nil
 }
 
-func (cm *Manager) sendNotify(historyLen int) error {
-	return cm.send(serverNotify{HistoryLen: historyLen})
+func (cm *Manager) sendNotify(shift int, historyLen int) error {
+	return cm.send(serverNotify{
+		HistoryLen:     historyLen,
+		FirstAvailable: shift,
+	})
 }
 
-func (cm *Manager) sendMessage(msg *history.GetResponse) error {
+func (cm *Manager) sendMessage(msg *history.GetResponse, histLen int) error {
 	return cm.send(serverSendMessage{
 		Uname:        msg.Msg.Uname,
 		Txt:          msg.Msg.Txt,
 		RequestedInd: msg.RequestedInd,
 		ResultInd:    msg.ResultInd,
-		HistoryLen:   cm.hm.GetHistLen(),
+		HistoryLen:   histLen,
 	})
 }
 
 func (cm *Manager) loginClient() error {
 	req, status, _ := cm.read()
-	if status != oKRead || req.typeInd != clientLoginInd {
+	if status != oKRead || req.TypeInd != clientLoginInd {
 		return fmt.Errorf("Cannot login client")
 	}
-	cm.uname = req.content.(clientLogin).Uname
+	cm.uname = req.Content.(*clientLogin).Uname
 	return nil
 }
