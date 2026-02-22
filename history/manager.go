@@ -11,16 +11,22 @@ type Message struct {
 	Txt   string
 }
 
-type Manager struct {
-	bufs    atomic.Pointer[twoHistBufs]
-	histLen atomic.Uint64
-	addReq  chan addRequest
-	subReq  chan Subscription
+type GetResponse struct {
+	Msg          Message
+	RequestedInd int
+	ResultInd    int
 }
 
 type Subscription struct {
 	Wake    chan struct{}
 	isAlive *atomic.Bool
+}
+
+type Manager struct {
+	bufs    atomic.Pointer[twoHistBufs]
+	histLen atomic.Uint64
+	addReq  chan addRequest
+	subReq  chan Subscription
 }
 
 type twoHistBufs struct {
@@ -147,26 +153,32 @@ func (hm *Manager) GetHistLen() int {
 	return int(hm.histLen.Load())
 }
 
-func (hm *Manager) GetMessage(i int) (lt Message, ok bool) {
+func (hm *Manager) GetMessage(i int) (GetResponse, bool) {
 	if hl := hm.GetHistLen(); hl <= i {
-		return Message{}, false
+		return GetResponse{}, false
 	}
 	bufs := hm.bufs.Load()
-	if i < bufs.shift { // todo: return with flag that this is the oldest we can provide
+	if i < bufs.shift {
 		log.Printf("INFO: Asked for outdated message %v, have only %v\n", i, bufs.shift)
-		firstAv := bufs.buf0[0]
-		msg := Message{
-			Uname: firstAv.Uname,
-			Txt:   fmt.Sprintf("*dont have such old message, there is the oldest available* %v", firstAv.Txt),
-		}
-		return msg, true
+		return GetResponse{
+			Msg:          bufs.buf0[0],
+			RequestedInd: i,
+			ResultInd:    bufs.shift,
+		}, true
 	}
 	iLoc := i - bufs.shift
 	bufLen := len(bufs.buf0)
+	msg := Message{}
 	if iLoc < bufLen {
-		return bufs.buf0[iLoc], true
+		msg = bufs.buf0[iLoc]
+	} else {
+		msg = bufs.buf1[iLoc-bufLen]
 	}
-	return bufs.buf1[iLoc-bufLen], true
+	return GetResponse{
+		Msg:          msg,
+		RequestedInd: i,
+		ResultInd:    i,
+	}, true
 }
 
 func (hm *Manager) AddMessage(msg Message) bool {
