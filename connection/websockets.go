@@ -1,10 +1,10 @@
 package connection
 
 import (
-	"fmt"
+	"encoding/json"
 	"log"
 	"net/http"
-	"vcmsg/history"
+	"vcmsg/room"
 
 	"github.com/gorilla/websocket"
 )
@@ -32,15 +32,20 @@ func getConn(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	return conn, err
 }
 
-func (cm *Manager) send(msg interface{ toJsonMessage() ([]byte, error) }) error {
-	bytesMsg, err := msg.toJsonMessage()
+func (cm *Manager) wsSend(msg wsMessage) (err error, isClosed bool) {
+	bytesMsg, err := json.Marshal(&msg)
 	if err != nil {
-		return err
+		log.Printf("WARN: Cannt marshal message of message index %v\n", msg.TypeInd)
+		return err, false
 	}
-	return cm.conn.WriteMessage(websocket.TextMessage, bytesMsg)
+	if err := cm.conn.WriteMessage(websocket.TextMessage, bytesMsg); err != nil {
+		return err, true
+	} else {
+		return nil, false
+	}
 }
 
-func (cm *Manager) read() (*wsMessage, readStatus, error) {
+func (cm *Manager) wsRead() (*wsMessage, readStatus, error) {
 	messageType, message, err := cm.conn.ReadMessage()
 	if err != nil {
 		return nil, closeRead, err
@@ -55,28 +60,32 @@ func (cm *Manager) read() (*wsMessage, readStatus, error) {
 	return req, oKRead, nil
 }
 
-func (cm *Manager) sendNotify(shift int, historyLen int) error {
-	return cm.send(serverNotify{
+func genericSend[T interface{ toWsMessage() wsMessage }](cm *Manager, msg T) {
+	cm.sends <- msg.toWsMessage()
+}
+
+func (cm *Manager) sendNotify(shift int, historyLen int, room string) {
+	genericSend(cm, serverNotify{
 		HistoryLen:     historyLen,
 		FirstAvailable: shift,
 	})
 }
 
-func (cm *Manager) sendMessage(msg *history.GetResponse, histLen int) error {
-	return cm.send(serverSendMessage{
+func (cm *Manager) sendMessage(msg *room.GetResponse) {
+	genericSend(cm, serverSendMessage{
 		Uname:        msg.Msg.Uname,
 		Txt:          msg.Msg.Txt,
 		RequestedInd: msg.RequestedInd,
 		ResultInd:    msg.ResultInd,
-		HistoryLen:   histLen,
+		HistoryLen:   msg.HistLen,
 	})
 }
 
-func (cm *Manager) loginClient() error {
-	req, status, _ := cm.read()
-	if status != oKRead || req.TypeInd != clientLoginInd {
-		return fmt.Errorf("Cannot login client")
-	}
-	cm.uname = req.Content.(*clientLogin).Uname
-	return nil
-}
+// func (cm *Manager) loginClient() error {
+// 	req, status, _ := cm.read()
+// 	if status != oKRead || req.TypeInd != clientLoginInd {
+// 		return fmt.Errorf("Cannot login client")
+// 	}
+// 	cm.uname = req.Content.(*clientLogin).Uname
+// 	return nil
+// }

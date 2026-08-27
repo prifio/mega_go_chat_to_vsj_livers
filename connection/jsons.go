@@ -22,10 +22,12 @@ type wsMessage struct {
 }
 
 type serverNotify struct {
+	Room           string
 	FirstAvailable int
 	HistoryLen     int
 }
 type serverSendMessage struct {
+	Room         string
 	Uname        string
 	Txt          string
 	RequestedInd int
@@ -34,13 +36,16 @@ type serverSendMessage struct {
 }
 
 type clientAskMessage struct {
-	Ind int
+	Room string
+	Ind  int
 }
 type clientSendMessage struct {
-	Txt string
+	Room string
+	Txt  string
 }
 type clientLogin struct {
-	Uname string
+	Uname    string
+	Password string
 }
 
 func unmarshalClientReq(msg []byte) (*wsMessage, error) {
@@ -70,15 +75,15 @@ func unmarshalClientReq(msg []byte) (*wsMessage, error) {
 	return &wsMessage{TypeInd: messageType(typeInd), Content: dst}, nil
 }
 
-func (notify serverNotify) toJsonMessage() ([]byte, error) {
-	return json.Marshal(&wsMessage{
+func (notify serverNotify) toWsMessage() wsMessage {
+	return wsMessage{
 		TypeInd: serverNotifyInd,
 		Content: notify,
-	})
+	}
 }
-func (msg serverSendMessage) toJsonMessage() ([]byte, error) {
-	return json.Marshal(&wsMessage{
+func (msg serverSendMessage) toWsMessage() wsMessage {
+	return wsMessage{
 		TypeInd: serverSendMessageInd,
 		Content: msg,
-	})
+	}
 }
